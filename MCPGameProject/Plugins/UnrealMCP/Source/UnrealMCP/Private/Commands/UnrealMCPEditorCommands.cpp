@@ -11,11 +11,16 @@
 #include "Engine/Selection.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/StaticMeshActor.h"
+#include "Engine/Light.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/PointLight.h"
 #include "Engine/SpotLight.h"
 #include "Camera/CameraActor.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/LightComponent.h"
+#include "Components/DirectionalLightComponent.h"
+#include "Components/PointLightComponent.h"
+#include "Components/SpotLightComponent.h"
 #include "EditorSubsystem.h"
 #include "Subsystems/EditorActorSubsystem.h"
 #include "Engine/Blueprint.h"
@@ -375,7 +380,75 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorProperty(const T
     }
     
     TSharedPtr<FJsonValue> PropertyValue = Params->Values.FindRef(TEXT("property_value"));
-    
+
+    // Special handling for light actors - check if we need to access the light component
+    ULightComponent* LightComponent = nullptr;
+    if (ALight* LightActor = Cast<ALight>(TargetActor))
+    {
+        LightComponent = LightActor->GetLightComponent();
+    }
+
+    // Handle light-specific properties
+    if (LightComponent && PropertyName.Equals(TEXT("LightColor"), ESearchCase::IgnoreCase))
+    {
+        // Parse color from string format "(R=255,G=105,B=180)" or array [255, 105, 180]
+        FColor NewColor;
+        FString ValueStr = PropertyValue->AsString();
+
+        if (ValueStr.Contains(TEXT("R=")))
+        {
+            // Parse from "(R=255,G=105,B=180)" format
+            int32 R = 255, G = 255, B = 255, A = 255;
+            FParse::Value(*ValueStr, TEXT("R="), R);
+            FParse::Value(*ValueStr, TEXT("G="), G);
+            FParse::Value(*ValueStr, TEXT("B="), B);
+            FParse::Value(*ValueStr, TEXT("A="), A);
+            NewColor = FColor(R, G, B, A);
+        }
+        else
+        {
+            // Try parsing as comma-separated values "255,105,180"
+            TArray<FString> Parts;
+            ValueStr.ParseIntoArray(Parts, TEXT(","), true);
+            if (Parts.Num() >= 3)
+            {
+                NewColor = FColor(
+                    FCString::Atoi(*Parts[0]),
+                    FCString::Atoi(*Parts[1]),
+                    FCString::Atoi(*Parts[2]),
+                    Parts.Num() > 3 ? FCString::Atoi(*Parts[3]) : 255
+                );
+            }
+            else
+            {
+                return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Invalid color format. Use 'R,G,B' or '(R=255,G=105,B=180)'"));
+            }
+        }
+
+        LightComponent->SetLightColor(NewColor);
+
+        TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+        ResultObj->SetStringField(TEXT("actor"), ActorName);
+        ResultObj->SetStringField(TEXT("property"), PropertyName);
+        ResultObj->SetStringField(TEXT("value"), FString::Printf(TEXT("R=%d,G=%d,B=%d,A=%d"), NewColor.R, NewColor.G, NewColor.B, NewColor.A));
+        ResultObj->SetBoolField(TEXT("success"), true);
+        return ResultObj;
+    }
+
+    // Handle light intensity
+    if (LightComponent && PropertyName.Equals(TEXT("Intensity"), ESearchCase::IgnoreCase))
+    {
+        float Intensity = FCString::Atof(*PropertyValue->AsString());
+        LightComponent->SetIntensity(Intensity);
+
+        TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+        ResultObj->SetStringField(TEXT("actor"), ActorName);
+        ResultObj->SetStringField(TEXT("property"), PropertyName);
+        ResultObj->SetNumberField(TEXT("value"), Intensity);
+        ResultObj->SetBoolField(TEXT("success"), true);
+        return ResultObj;
+    }
+
     // Set the property using our utility function
     FString ErrorMessage;
     if (FUnrealMCPCommonUtils::SetObjectProperty(TargetActor, PropertyName, PropertyValue, ErrorMessage))
