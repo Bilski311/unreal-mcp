@@ -59,16 +59,25 @@ Metanoia uses this repo as a **git submodule** at `Metanoia/external/unreal-mcp/
 
 ## Adding New MCP Commands
 
-### 1. Add C++ handler
-- Create handler in appropriate `*Commands.cpp` file
-- Add routing in `UnrealMCPBridge.cpp`
-- Add declaration in header file
+**Use the custom agent:** `.claude/agents/add-mcp-command.md`
 
-### 2. Add Python tool
-- Add `@mcp.tool()` decorated function in appropriate `*_tools.py` file
-- Function calls `unreal.send_command("command_name", params)`
+This agent knows exactly how to add new MCP commands. Invoke it by saying:
 
-### 3. Test
-- Rebuild plugin (for C++ changes)
-- Restart MCP server (for Python changes)
-- Restart Claude Code to pick up new tools
+```
+Use the add-mcp-command agent to add a command called "your_command" that does X
+```
+
+The agent provides:
+- Step-by-step instructions for C++ handlers, headers, routing, and Python tools
+- Code templates for each component
+- Common UE5 patterns (finding assets, blueprints, actors, setting properties)
+- Complete deployment workflow
+- Testing checklist
+
+### Quick Reference (if not using the agent)
+
+1. **C++ handler** in `Private/Commands/*Commands.cpp`
+2. **Header declaration** in `Public/Commands/*Commands.h`
+3. **Routing** in `Private/UnrealMCPBridge.cpp`
+4. **Python tool** in `Python/tools/*_tools.py`
+5. **Commit, push, update submodule, rebuild**
