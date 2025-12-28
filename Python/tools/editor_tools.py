@@ -484,23 +484,23 @@ def register_editor_tools(mcp: FastMCP):
         name: str,
         component_name: str,
         property_name: str,
-        property_value: str
+        property_value: Any
     ) -> Dict[str, Any]:
         """Set a property on a component attached to an actor.
-        
+
         This allows modifying properties on any component of any actor in the level.
         Use get_actor_components first to discover available components.
-        
+
         Args:
             ctx: The MCP context
             name: The name of the actor
             component_name: The name or class of the component (e.g., "CharacterMovement", "CharacterMovement0", "CharacterMovementComponent")
             property_name: The property to set (e.g., "MaxWalkSpeed", "JumpZVelocity")
-            property_value: The value to set (as string, will be parsed appropriately)
-            
+            property_value: The value to set (can be string, int, or float - will be converted appropriately)
+
         Returns:
             Dict containing success status and the set values
-            
+
         Common CharacterMovementComponent properties:
             - MaxWalkSpeed (default 600) - walking speed in cm/s
             - MaxWalkSpeedCrouched (default 300) - crouched speed
@@ -509,27 +509,30 @@ def register_editor_tools(mcp: FastMCP):
             - MaxAcceleration (default 2048) - how fast to reach max speed
             - BrakingDecelerationWalking (default 2048) - how fast to stop
             - GroundFriction (default 8.0) - friction when walking
-            
+
         Example:
             # Make character walk faster
-            set_actor_component_property(ctx, "BP_TopDownCharacter_C_...", "CharacterMovement", "MaxWalkSpeed", "1200")
-            
+            set_actor_component_property(ctx, "BP_TopDownCharacter_C_...", "CharacterMovement", "MaxWalkSpeed", 1200)
+
             # Make character jump higher
-            set_actor_component_property(ctx, "BP_TopDownCharacter_C_...", "CharacterMovement", "JumpZVelocity", "800")
+            set_actor_component_property(ctx, "BP_TopDownCharacter_C_...", "CharacterMovement", "JumpZVelocity", 800)
         """
         from unreal_mcp_server import get_unreal_connection
-        
+
+        # Convert property_value to string for the C++ side
+        value_str = str(property_value)
+
         try:
             unreal = get_unreal_connection()
             if not unreal:
                 logger.error("Failed to connect to Unreal Engine")
                 return {"success": False, "message": "Failed to connect to Unreal Engine"}
-            
+
             params = {
                 "name": name,
                 "component_name": component_name,
                 "property_name": property_name,
-                "property_value": property_value
+                "property_value": value_str
             }
             logger.info(f"Setting component property: {name}.{component_name}.{property_name} = {property_value}")
             response = unreal.send_command("set_actor_component_property", params)
