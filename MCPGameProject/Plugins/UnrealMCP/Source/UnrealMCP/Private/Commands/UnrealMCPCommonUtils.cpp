@@ -1,4 +1,5 @@
 #include "Commands/UnrealMCPCommonUtils.h"
+#include "AssetRegistry/AssetRegistryModule.h"
 #include "GameFramework/Actor.h"
 #include "Engine/Blueprint.h"
 #include "EdGraph/EdGraph.h"
@@ -153,8 +154,49 @@ UBlueprint* FUnrealMCPCommonUtils::FindBlueprint(const FString& BlueprintName)
 
 UBlueprint* FUnrealMCPCommonUtils::FindBlueprintByName(const FString& BlueprintName)
 {
-    FString AssetPath = TEXT("/Game/Blueprints/") + BlueprintName;
-    return LoadObject<UBlueprint>(nullptr, *AssetPath);
+    // If it's already a full path, try loading directly
+    if (BlueprintName.StartsWith(TEXT("/Game/")))
+    {
+        UBlueprint* BP = LoadObject<UBlueprint>(nullptr, *BlueprintName);
+        if (BP) return BP;
+    }
+
+    // Try common Blueprint directories
+    TArray<FString> SearchPaths = {
+        TEXT("/Game/Blueprints/"),
+        TEXT("/Game/TopDown/Blueprints/"),
+        TEXT("/Game/Characters/"),
+        TEXT("/Game/")
+    };
+
+    for (const FString& BasePath : SearchPaths)
+    {
+        FString AssetPath = BasePath + BlueprintName;
+        UBlueprint* BP = LoadObject<UBlueprint>(nullptr, *AssetPath);
+        if (BP)
+        {
+            UE_LOG(LogTemp, Log, TEXT("FindBlueprintByName: Found %s at %s"), *BlueprintName, *AssetPath);
+            return BP;
+        }
+    }
+
+    // Try using Asset Registry for a broader search
+    FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+    TArray<FAssetData> AssetDataList;
+    AssetRegistryModule.Get().GetAssetsByClass(UBlueprint::StaticClass()->GetClassPathName(), AssetDataList);
+
+    for (const FAssetData& AssetData : AssetDataList)
+    {
+        if (AssetData.AssetName.ToString() == BlueprintName)
+        {
+            UE_LOG(LogTemp, Log, TEXT("FindBlueprintByName: Found %s via AssetRegistry at %s"),
+                *BlueprintName, *AssetData.GetObjectPathString());
+            return Cast<UBlueprint>(AssetData.GetAsset());
+        }
+    }
+
+    UE_LOG(LogTemp, Warning, TEXT("FindBlueprintByName: Could not find blueprint %s"), *BlueprintName);
+    return nullptr;
 }
 
 UEdGraph* FUnrealMCPCommonUtils::FindOrCreateEventGraph(UBlueprint* Blueprint)

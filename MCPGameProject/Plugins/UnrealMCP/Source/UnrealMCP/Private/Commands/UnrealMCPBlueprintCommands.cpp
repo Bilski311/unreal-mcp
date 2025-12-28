@@ -20,6 +20,7 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/CharacterMovementComponent.h"
 
 FUnrealMCPBlueprintCommands::FUnrealMCPBlueprintCommands()
 {
@@ -349,20 +350,61 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetComponentProperty(
         }
     }
 
-    if (!ComponentNode)
+    // Get the component template - either from SCS node or inherited from parent class
+    UObject* ComponentTemplate = nullptr;
+
+    if (ComponentNode)
     {
-        UE_LOG(LogTemp, Error, TEXT("SetComponentProperty - Component not found: %s"), *ComponentName);
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Component not found: %s"), *ComponentName));
+        UE_LOG(LogTemp, Log, TEXT("SetComponentProperty - Component found in SCS: %s (Class: %s)"),
+            *ComponentName,
+            ComponentNode->ComponentTemplate ? *ComponentNode->ComponentTemplate->GetClass()->GetName() : TEXT("NULL"));
+        ComponentTemplate = ComponentNode->ComponentTemplate;
     }
     else
     {
-        UE_LOG(LogTemp, Log, TEXT("SetComponentProperty - Component found: %s (Class: %s)"), 
-            *ComponentName, 
-            ComponentNode->ComponentTemplate ? *ComponentNode->ComponentTemplate->GetClass()->GetName() : TEXT("NULL"));
+        // Component not in SimpleConstructionScript - check inherited components from CDO
+        UE_LOG(LogTemp, Log, TEXT("SetComponentProperty - Component %s not in SCS, checking inherited components..."), *ComponentName);
+
+        if (Blueprint->GeneratedClass)
+        {
+            AActor* CDO = Cast<AActor>(Blueprint->GeneratedClass->GetDefaultObject());
+            if (CDO)
+            {
+                TArray<UActorComponent*> Components;
+                CDO->GetComponents(Components);
+
+                for (UActorComponent* Comp : Components)
+                {
+                    if (Comp)
+                    {
+                        FString CompName = Comp->GetName();
+                        FString ClassName = Comp->GetClass()->GetName();
+
+                        UE_LOG(LogTemp, Verbose, TEXT("SetComponentProperty - Checking inherited component: %s (%s)"),
+                            *CompName, *ClassName);
+
+                        // Match by name or class name
+                        if (CompName.Equals(ComponentName, ESearchCase::IgnoreCase) ||
+                            CompName.Contains(ComponentName) ||
+                            ClassName.Contains(ComponentName))
+                        {
+                            ComponentTemplate = Comp;
+                            UE_LOG(LogTemp, Log, TEXT("SetComponentProperty - Found inherited component: %s (%s)"),
+                                *CompName, *ClassName);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!ComponentTemplate)
+        {
+            UE_LOG(LogTemp, Error, TEXT("SetComponentProperty - Component not found: %s (checked SCS and inherited)"), *ComponentName);
+            return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Component not found: %s"), *ComponentName));
+        }
     }
 
-    // Get the component template
-    UObject* ComponentTemplate = ComponentNode->ComponentTemplate;
     if (!ComponentTemplate)
     {
         UE_LOG(LogTemp, Error, TEXT("SetComponentProperty - Component template is NULL for %s"), *ComponentName);
@@ -503,6 +545,73 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetComponentProperty(
                 return FUnrealMCPCommonUtils::CreateErrorResponse(
                     FString::Printf(TEXT("Failed to set SpringArm property %s"), *PropertyName));
             }
+        }
+    }
+
+    // Special handling for CharacterMovementComponent
+    if (UCharacterMovementComponent* MoveComp = Cast<UCharacterMovementComponent>(ComponentTemplate))
+    {
+        UE_LOG(LogTemp, Log, TEXT("SetComponentProperty - CharacterMovementComponent detected"));
+
+        if (Params->HasField(TEXT("property_value")))
+        {
+            TSharedPtr<FJsonValue> JsonValue = Params->Values.FindRef(TEXT("property_value"));
+            float FloatValue = FCString::Atof(*JsonValue->AsString());
+
+            ComponentTemplate->Modify();
+
+            bool bSuccess = false;
+            if (PropertyName.Equals(TEXT("MaxWalkSpeed"), ESearchCase::IgnoreCase))
+            {
+                MoveComp->MaxWalkSpeed = FloatValue;
+                bSuccess = true;
+            }
+            else if (PropertyName.Equals(TEXT("MaxWalkSpeedCrouched"), ESearchCase::IgnoreCase))
+            {
+                MoveComp->MaxWalkSpeedCrouched = FloatValue;
+                bSuccess = true;
+            }
+            else if (PropertyName.Equals(TEXT("JumpZVelocity"), ESearchCase::IgnoreCase))
+            {
+                MoveComp->JumpZVelocity = FloatValue;
+                bSuccess = true;
+            }
+            else if (PropertyName.Equals(TEXT("GravityScale"), ESearchCase::IgnoreCase))
+            {
+                MoveComp->GravityScale = FloatValue;
+                bSuccess = true;
+            }
+            else if (PropertyName.Equals(TEXT("MaxAcceleration"), ESearchCase::IgnoreCase))
+            {
+                MoveComp->MaxAcceleration = FloatValue;
+                bSuccess = true;
+            }
+            else if (PropertyName.Equals(TEXT("BrakingDecelerationWalking"), ESearchCase::IgnoreCase))
+            {
+                MoveComp->BrakingDecelerationWalking = FloatValue;
+                bSuccess = true;
+            }
+            else if (PropertyName.Equals(TEXT("GroundFriction"), ESearchCase::IgnoreCase))
+            {
+                MoveComp->GroundFriction = FloatValue;
+                bSuccess = true;
+            }
+
+            if (bSuccess)
+            {
+                ComponentTemplate->PostEditChange();
+                FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+
+                UE_LOG(LogTemp, Log, TEXT("SetComponentProperty - Set CharacterMovement.%s = %f"), *PropertyName, FloatValue);
+
+                TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+                ResultObj->SetStringField(TEXT("component"), ComponentName);
+                ResultObj->SetStringField(TEXT("property"), PropertyName);
+                ResultObj->SetNumberField(TEXT("value"), FloatValue);
+                ResultObj->SetBoolField(TEXT("success"), true);
+                return ResultObj;
+            }
+            // If property not in special list, fall through to generic handling
         }
     }
 
