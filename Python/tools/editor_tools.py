@@ -433,4 +433,46 @@ def register_editor_tools(mcp: FastMCP):
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
 
+    @mcp.tool()
+    def save_all(ctx: Context) -> Dict[str, Any]:
+        """Save all modified assets and the current level in Unreal Editor.
+        
+        This saves:
+        - The current level/map
+        - Any modified assets (blueprints, materials, etc.)
+        - Any dirty packages
+        
+        Returns:
+            Dict containing:
+            - success: bool indicating if save succeeded
+            - saved_count: number of items saved
+            - saved_items: list of saved package/level names
+            - message: human-readable status message
+            
+        Example:
+            save_all(ctx) -> {"success": True, "saved_count": 2, "saved_items": ["Level: Main", "Package: BP_MyActor"], "message": "Saved 2 item(s)"}
+        """
+        from unreal_mcp_server import get_unreal_connection
+        
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+            
+            logger.info("Saving all modified assets and level...")
+            response = unreal.send_command("save_all", {})
+            
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+            
+            logger.info(f"Save all response: {response}")
+            return response
+            
+        except Exception as e:
+            error_msg = f"Error saving: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
     logger.info("Editor tools registered successfully")

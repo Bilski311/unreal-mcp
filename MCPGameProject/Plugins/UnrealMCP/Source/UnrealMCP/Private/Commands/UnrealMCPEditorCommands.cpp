@@ -26,6 +26,9 @@
 #include "Subsystems/EditorActorSubsystem.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
+#include "FileHelpers.h"
+#include "Engine/World.h"
+#include "UObject/SavePackage.h"
 
 FUnrealMCPEditorCommands::FUnrealMCPEditorCommands()
 {
@@ -79,6 +82,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCommand(const FString& C
     else if (CommandType == TEXT("take_screenshot"))
     {
         return HandleTakeScreenshot(Params);
+    }
+    // Save commands
+    else if (CommandType == TEXT("save_all") || CommandType == TEXT("save_current_level"))
+    {
+        return HandleSaveAll(Params);
     }
     
     return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Unknown editor command: %s"), *CommandType));
@@ -733,4 +741,84 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleTakeScreenshot(const TSh
     }
     
     return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to take screenshot"));
-} 
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSaveAll(const TSharedPtr<FJsonObject>& Params)
+{
+    // Get the current world
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    if (!World)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("No world loaded"));
+    }
+
+    // Track what we saved
+    TArray<FString> SavedItems;
+    bool bSuccess = true;
+
+    // Save the current level using FEditorFileUtils
+    ULevel* CurrentLevel = World->GetCurrentLevel();
+    if (CurrentLevel)
+    {
+        UPackage* LevelPackage = CurrentLevel->GetOutermost();
+        if (LevelPackage && LevelPackage->IsDirty())
+        {
+            FString PackageFileName = FPackageName::LongPackageNameToFilename(LevelPackage->GetName(), FPackageName::GetMapPackageExtension());
+            FSavePackageArgs SaveArgs;
+            SaveArgs.TopLevelFlags = RF_Standalone;
+            if (UPackage::SavePackage(LevelPackage, World, *PackageFileName, SaveArgs))
+            {
+                SavedItems.Add(FString::Printf(TEXT("Level: %s"), *LevelPackage->GetName()));
+            }
+            else
+            {
+                bSuccess = false;
+            }
+        }
+    }
+
+    // Save all dirty packages (assets, blueprints, etc.)
+    TArray<UPackage*> PackagesToSave;
+    FEditorFileUtils::GetDirtyContentPackages(PackagesToSave);
+    FEditorFileUtils::GetDirtyWorldPackages(PackagesToSave);
+
+    for (UPackage* Package : PackagesToSave)
+    {
+        if (Package && Package->IsDirty())
+        {
+            FString PackageFileName;
+            if (FPackageName::TryConvertLongPackageNameToFilename(Package->GetName(), PackageFileName, FPackageName::GetAssetPackageExtension()))
+            {
+                FSavePackageArgs SaveArgs;
+                SaveArgs.TopLevelFlags = RF_Standalone;
+                if (UPackage::SavePackage(Package, nullptr, *PackageFileName, SaveArgs))
+                {
+                    SavedItems.Add(FString::Printf(TEXT("Package: %s"), *Package->GetName()));
+                }
+            }
+        }
+    }
+
+    // Build response
+    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+    ResultObj->SetBoolField(TEXT("success"), bSuccess);
+    ResultObj->SetNumberField(TEXT("saved_count"), SavedItems.Num());
+
+    TArray<TSharedPtr<FJsonValue>> SavedArray;
+    for (const FString& Item : SavedItems)
+    {
+        SavedArray.Add(MakeShared<FJsonValueString>(Item));
+    }
+    ResultObj->SetArrayField(TEXT("saved_items"), SavedArray);
+
+    if (SavedItems.Num() == 0)
+    {
+        ResultObj->SetStringField(TEXT("message"), TEXT("No dirty packages to save"));
+    }
+    else
+    {
+        ResultObj->SetStringField(TEXT("message"), FString::Printf(TEXT("Saved %d item(s)"), SavedItems.Num()));
+    }
+
+    return ResultObj;
+}
