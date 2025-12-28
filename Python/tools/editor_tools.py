@@ -81,19 +81,30 @@ def register_editor_tools(mcp: FastMCP):
         name: str,
         type: str,
         location: List[float] = [0.0, 0.0, 0.0],
-        rotation: List[float] = [0.0, 0.0, 0.0]
+        rotation: List[float] = [0.0, 0.0, 0.0],
+        mesh_path: str = ""
     ) -> Dict[str, Any]:
         """Create a new actor in the current level.
         
         Args:
             ctx: The MCP context
             name: The name to give the new actor (must be unique)
-            type: The type of actor to create (e.g. StaticMeshActor, PointLight)
+            type: The type of actor to create (e.g. StaticMeshActor, PointLight, DirectionalLight, SpotLight, CameraActor)
             location: The [x, y, z] world location to spawn at
             rotation: The [pitch, yaw, roll] rotation in degrees
+            mesh_path: For StaticMeshActor only - path to the mesh asset to use. 
+                       Common paths: /Engine/BasicShapes/Cube.Cube, /Engine/BasicShapes/Sphere.Sphere,
+                       /Engine/BasicShapes/Cylinder.Cylinder, /Engine/BasicShapes/Cone.Cone, /Engine/BasicShapes/Plane.Plane
             
         Returns:
             Dict containing the created actor's properties
+            
+        Examples:
+            # Spawn a cube at origin
+            spawn_actor(ctx, "MyCube", "StaticMeshActor", [0,0,0], [0,0,0], "/Engine/BasicShapes/Cube.Cube")
+            
+            # Spawn a point light
+            spawn_actor(ctx, "MyLight", "PointLight", [100,0,200], [0,0,0])
         """
         from unreal_mcp_server import get_unreal_connection
         
@@ -106,10 +117,14 @@ def register_editor_tools(mcp: FastMCP):
             # Ensure all parameters are properly formatted
             params = {
                 "name": name,
-                "type": type.upper(),  # Make sure type is uppercase
+                "type": type,  # Use type as-is (e.g., "StaticMeshActor", "PointLight")
                 "location": location,
                 "rotation": rotation
             }
+            
+            # Add mesh_path if provided (for StaticMeshActor)
+            if mesh_path:
+                params["mesh_path"] = mesh_path
             
             # Validate location and rotation formats
             for param_name in ["location", "rotation"]:

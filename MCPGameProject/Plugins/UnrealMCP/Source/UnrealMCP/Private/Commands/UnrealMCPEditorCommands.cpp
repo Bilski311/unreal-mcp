@@ -190,6 +190,30 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSpawnActor(const TShared
     if (ActorType == TEXT("StaticMeshActor"))
     {
         NewActor = World->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), Location, Rotation, SpawnParams);
+        
+        // If mesh_path is provided, set the mesh immediately
+        if (NewActor && Params->HasField(TEXT("mesh_path")))
+        {
+            FString MeshPath;
+            if (Params->TryGetStringField(TEXT("mesh_path"), MeshPath))
+            {
+                UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *MeshPath);
+                if (Mesh)
+                {
+                    AStaticMeshActor* MeshActor = Cast<AStaticMeshActor>(NewActor);
+                    if (MeshActor && MeshActor->GetStaticMeshComponent())
+                    {
+                        MeshActor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
+                    }
+                }
+                else
+                {
+                    // Clean up the actor we just spawned since mesh loading failed
+                    NewActor->Destroy();
+                    return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to load mesh: %s. Common paths: /Engine/BasicShapes/Cube.Cube, /Engine/BasicShapes/Sphere.Sphere"), *MeshPath));
+                }
+            }
+        }
     }
     else if (ActorType == TEXT("PointLight"))
     {
@@ -403,12 +427,21 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorProperty(const T
                     ResultObj->SetBoolField(TEXT("success"), true);
                     return ResultObj;
                 }
+                else
+                {
+                    return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("StaticMeshComponent not found on actor"));
+                }
             }
             else
             {
-                return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to load mesh: %s"), *MeshPath));
+                return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to load mesh: %s. Common paths: /Engine/BasicShapes/Cube.Cube, /Engine/BasicShapes/Sphere.Sphere"), *MeshPath));
             }
         }
+    }
+    // Also handle StaticMesh property for non-StaticMeshActor (provide helpful error)
+    else if (PropertyName.Equals(TEXT("StaticMesh"), ESearchCase::IgnoreCase))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Actor '%s' is not a StaticMeshActor (class: %s). Cannot set StaticMesh property."), *ActorName, *TargetActor->GetClass()->GetName()));
     }
 
     // Special handling for light actors - check if we need to access the light component
