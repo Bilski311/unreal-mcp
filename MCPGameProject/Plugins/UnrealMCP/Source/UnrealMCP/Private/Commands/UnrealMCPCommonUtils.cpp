@@ -678,7 +678,7 @@ bool FUnrealMCPCommonUtils::SetObjectProperty(UObject* Object, const FString& Pr
         FEnumProperty* EnumProp = CastField<FEnumProperty>(Property);
         UEnum* EnumDef = EnumProp ? EnumProp->GetEnum() : nullptr;
         FNumericProperty* UnderlyingNumericProp = EnumProp ? EnumProp->GetUnderlyingProperty() : nullptr;
-        
+
         if (EnumDef && UnderlyingNumericProp)
         {
             // Handle numeric value
@@ -686,8 +686,8 @@ bool FUnrealMCPCommonUtils::SetObjectProperty(UObject* Object, const FString& Pr
             {
                 int64 EnumValue = static_cast<int64>(Value->AsNumber());
                 UnderlyingNumericProp->SetIntPropertyValue(PropertyAddr, EnumValue);
-                
-                UE_LOG(LogTemp, Display, TEXT("Setting enum property %s to numeric value: %lld"), 
+
+                UE_LOG(LogTemp, Display, TEXT("Setting enum property %s to numeric value: %lld"),
                       *PropertyName, EnumValue);
                 return true;
             }
@@ -695,36 +695,36 @@ bool FUnrealMCPCommonUtils::SetObjectProperty(UObject* Object, const FString& Pr
             else if (Value->Type == EJson::String)
             {
                 FString EnumValueName = Value->AsString();
-                
+
                 // Try to convert numeric string to number first
                 if (EnumValueName.IsNumeric())
                 {
                     int64 EnumValue = FCString::Atoi64(*EnumValueName);
                     UnderlyingNumericProp->SetIntPropertyValue(PropertyAddr, EnumValue);
-                    
-                    UE_LOG(LogTemp, Display, TEXT("Setting enum property %s to numeric string value: %s -> %lld"), 
+
+                    UE_LOG(LogTemp, Display, TEXT("Setting enum property %s to numeric string value: %s -> %lld"),
                           *PropertyName, *EnumValueName, EnumValue);
                     return true;
                 }
-                
+
                 // Handle qualified enum names
                 if (EnumValueName.Contains(TEXT("::")))
                 {
                     EnumValueName.Split(TEXT("::"), nullptr, &EnumValueName);
                 }
-                
+
                 int64 EnumValue = EnumDef->GetValueByNameString(EnumValueName);
                 if (EnumValue == INDEX_NONE)
                 {
                     // Try with full name as fallback
                     EnumValue = EnumDef->GetValueByNameString(Value->AsString());
                 }
-                
+
                 if (EnumValue != INDEX_NONE)
                 {
                     UnderlyingNumericProp->SetIntPropertyValue(PropertyAddr, EnumValue);
-                    
-                    UE_LOG(LogTemp, Display, TEXT("Setting enum property %s to name value: %s -> %lld"), 
+
+                    UE_LOG(LogTemp, Display, TEXT("Setting enum property %s to name value: %s -> %lld"),
                           *PropertyName, *EnumValueName, EnumValue);
                     return true;
                 }
@@ -734,18 +734,81 @@ bool FUnrealMCPCommonUtils::SetObjectProperty(UObject* Object, const FString& Pr
                     UE_LOG(LogTemp, Warning, TEXT("Could not find enum value for '%s'. Available options:"), *EnumValueName);
                     for (int32 i = 0; i < EnumDef->NumEnums(); i++)
                     {
-                        UE_LOG(LogTemp, Warning, TEXT("  - %s (value: %d)"), 
+                        UE_LOG(LogTemp, Warning, TEXT("  - %s (value: %d)"),
                                *EnumDef->GetNameStringByIndex(i), EnumDef->GetValueByIndex(i));
                     }
-                    
+
                     OutErrorMessage = FString::Printf(TEXT("Could not find enum value for '%s'"), *EnumValueName);
                     return false;
                 }
             }
         }
     }
-    
-    OutErrorMessage = FString::Printf(TEXT("Unsupported property type: %s for property %s"), 
+    else if (Property->IsA<FObjectProperty>())
+    {
+        FObjectProperty* ObjectProp = CastField<FObjectProperty>(Property);
+        if (ObjectProp)
+        {
+            // Handle null/empty value - set property to nullptr
+            if (Value->IsNull() || (Value->Type == EJson::String && Value->AsString().IsEmpty()))
+            {
+                ObjectProp->SetObjectPropertyValue(PropertyAddr, nullptr);
+                UE_LOG(LogTemp, Display, TEXT("Setting object property %s to null"), *PropertyName);
+                return true;
+            }
+
+            // Handle asset path string (e.g., "/Game/TopDown/Input/Actions/IA_Interact.IA_Interact")
+            if (Value->Type == EJson::String)
+            {
+                FString AssetPath = Value->AsString();
+
+                // Get the expected class for this property
+                UClass* ExpectedClass = ObjectProp->PropertyClass;
+
+                // Try to load the object using StaticLoadObject
+                UObject* LoadedObject = StaticLoadObject(ExpectedClass, nullptr, *AssetPath);
+
+                if (LoadedObject)
+                {
+                    ObjectProp->SetObjectPropertyValue(PropertyAddr, LoadedObject);
+                    UE_LOG(LogTemp, Display, TEXT("Setting object property %s to loaded asset: %s (class: %s)"),
+                          *PropertyName, *AssetPath, *LoadedObject->GetClass()->GetName());
+                    return true;
+                }
+                else
+                {
+                    // Try loading with UObject as base class in case the path is valid but class mismatch
+                    UObject* GenericObject = StaticLoadObject(UObject::StaticClass(), nullptr, *AssetPath);
+                    if (GenericObject)
+                    {
+                        // Check if the loaded object is compatible with the expected class
+                        if (GenericObject->IsA(ExpectedClass))
+                        {
+                            ObjectProp->SetObjectPropertyValue(PropertyAddr, GenericObject);
+                            UE_LOG(LogTemp, Display, TEXT("Setting object property %s to loaded asset: %s"),
+                                  *PropertyName, *AssetPath);
+                            return true;
+                        }
+                        else
+                        {
+                            OutErrorMessage = FString::Printf(TEXT("Loaded object '%s' (class: %s) is not compatible with expected class '%s'"),
+                                *AssetPath, *GenericObject->GetClass()->GetName(), *ExpectedClass->GetName());
+                            return false;
+                        }
+                    }
+
+                    OutErrorMessage = FString::Printf(TEXT("Failed to load object from path: %s (expected class: %s)"),
+                        *AssetPath, *ExpectedClass->GetName());
+                    return false;
+                }
+            }
+
+            OutErrorMessage = FString::Printf(TEXT("ObjectProperty %s requires a string asset path value"), *PropertyName);
+            return false;
+        }
+    }
+
+    OutErrorMessage = FString::Printf(TEXT("Unsupported property type: %s for property %s"),
                                     *Property->GetClass()->GetName(), *PropertyName);
     return false;
 } 
