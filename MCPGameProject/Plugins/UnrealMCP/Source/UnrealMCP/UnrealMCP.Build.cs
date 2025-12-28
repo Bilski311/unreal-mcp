@@ -29,6 +29,7 @@ public class UnrealMCP : ModuleRules
 				"CoreUObject",
 				"Engine",
 				"InputCore",
+				"EnhancedInput",
 				"Networking",
 				"Sockets",
 				"HTTP",

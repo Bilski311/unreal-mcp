@@ -3,6 +3,7 @@
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
 #include "Factories/BlueprintFactory.h"
+#include "UObject/SavePackage.h"
 #include "EdGraphSchema_K2.h"
 #include "K2Node_Event.h"
 #include "K2Node_VariableGet.h"
@@ -20,7 +21,6 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
-#include "GameFramework/CharacterMovementComponent.h"
 
 FUnrealMCPBlueprintCommands::FUnrealMCPBlueprintCommands()
 {
@@ -64,7 +64,11 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCommand(const FString
     {
         return HandleSetPawnProperties(Params);
     }
-    
+    else if (CommandType == TEXT("reparent_blueprint"))
+    {
+        return HandleReparentBlueprint(Params);
+    }
+
     return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Unknown blueprint command: %s"), *CommandType));
 }
 
@@ -350,61 +354,20 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetComponentProperty(
         }
     }
 
-    // Get the component template - either from SCS node or inherited from parent class
-    UObject* ComponentTemplate = nullptr;
-
-    if (ComponentNode)
+    if (!ComponentNode)
     {
-        UE_LOG(LogTemp, Log, TEXT("SetComponentProperty - Component found in SCS: %s (Class: %s)"),
-            *ComponentName,
-            ComponentNode->ComponentTemplate ? *ComponentNode->ComponentTemplate->GetClass()->GetName() : TEXT("NULL"));
-        ComponentTemplate = ComponentNode->ComponentTemplate;
+        UE_LOG(LogTemp, Error, TEXT("SetComponentProperty - Component not found: %s"), *ComponentName);
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Component not found: %s"), *ComponentName));
     }
     else
     {
-        // Component not in SimpleConstructionScript - check inherited components from CDO
-        UE_LOG(LogTemp, Log, TEXT("SetComponentProperty - Component %s not in SCS, checking inherited components..."), *ComponentName);
-
-        if (Blueprint->GeneratedClass)
-        {
-            AActor* CDO = Cast<AActor>(Blueprint->GeneratedClass->GetDefaultObject());
-            if (CDO)
-            {
-                TArray<UActorComponent*> Components;
-                CDO->GetComponents(Components);
-
-                for (UActorComponent* Comp : Components)
-                {
-                    if (Comp)
-                    {
-                        FString CompName = Comp->GetName();
-                        FString ClassName = Comp->GetClass()->GetName();
-
-                        UE_LOG(LogTemp, Verbose, TEXT("SetComponentProperty - Checking inherited component: %s (%s)"),
-                            *CompName, *ClassName);
-
-                        // Match by name or class name
-                        if (CompName.Equals(ComponentName, ESearchCase::IgnoreCase) ||
-                            CompName.Contains(ComponentName) ||
-                            ClassName.Contains(ComponentName))
-                        {
-                            ComponentTemplate = Comp;
-                            UE_LOG(LogTemp, Log, TEXT("SetComponentProperty - Found inherited component: %s (%s)"),
-                                *CompName, *ClassName);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (!ComponentTemplate)
-        {
-            UE_LOG(LogTemp, Error, TEXT("SetComponentProperty - Component not found: %s (checked SCS and inherited)"), *ComponentName);
-            return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Component not found: %s"), *ComponentName));
-        }
+        UE_LOG(LogTemp, Log, TEXT("SetComponentProperty - Component found: %s (Class: %s)"), 
+            *ComponentName, 
+            ComponentNode->ComponentTemplate ? *ComponentNode->ComponentTemplate->GetClass()->GetName() : TEXT("NULL"));
     }
 
+    // Get the component template
+    UObject* ComponentTemplate = ComponentNode->ComponentTemplate;
     if (!ComponentTemplate)
     {
         UE_LOG(LogTemp, Error, TEXT("SetComponentProperty - Component template is NULL for %s"), *ComponentName);
@@ -529,9 +492,18 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetComponentProperty(
 
             if (bSuccess)
             {
-                // Mark the blueprint as modified
+                // Mark ONLY the component as modified, not the whole Blueprint
                 UE_LOG(LogTemp, Log, TEXT("SetComponentProperty - Successfully set SpringArm property %s"), *PropertyName);
-                FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+
+                // Mark packages as dirty for saving, but don't trigger recompilation
+                if (ComponentTemplate)
+                {
+                    ComponentTemplate->MarkPackageDirty();
+                }
+                if (Blueprint && Blueprint->GetOutermost())
+                {
+                    Blueprint->GetOutermost()->MarkPackageDirty();
+                }
 
                 TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
                 ResultObj->SetStringField(TEXT("component"), ComponentName);
@@ -545,73 +517,6 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetComponentProperty(
                 return FUnrealMCPCommonUtils::CreateErrorResponse(
                     FString::Printf(TEXT("Failed to set SpringArm property %s"), *PropertyName));
             }
-        }
-    }
-
-    // Special handling for CharacterMovementComponent
-    if (UCharacterMovementComponent* MoveComp = Cast<UCharacterMovementComponent>(ComponentTemplate))
-    {
-        UE_LOG(LogTemp, Log, TEXT("SetComponentProperty - CharacterMovementComponent detected"));
-
-        if (Params->HasField(TEXT("property_value")))
-        {
-            TSharedPtr<FJsonValue> JsonValue = Params->Values.FindRef(TEXT("property_value"));
-            float FloatValue = FCString::Atof(*JsonValue->AsString());
-
-            ComponentTemplate->Modify();
-
-            bool bSuccess = false;
-            if (PropertyName.Equals(TEXT("MaxWalkSpeed"), ESearchCase::IgnoreCase))
-            {
-                MoveComp->MaxWalkSpeed = FloatValue;
-                bSuccess = true;
-            }
-            else if (PropertyName.Equals(TEXT("MaxWalkSpeedCrouched"), ESearchCase::IgnoreCase))
-            {
-                MoveComp->MaxWalkSpeedCrouched = FloatValue;
-                bSuccess = true;
-            }
-            else if (PropertyName.Equals(TEXT("JumpZVelocity"), ESearchCase::IgnoreCase))
-            {
-                MoveComp->JumpZVelocity = FloatValue;
-                bSuccess = true;
-            }
-            else if (PropertyName.Equals(TEXT("GravityScale"), ESearchCase::IgnoreCase))
-            {
-                MoveComp->GravityScale = FloatValue;
-                bSuccess = true;
-            }
-            else if (PropertyName.Equals(TEXT("MaxAcceleration"), ESearchCase::IgnoreCase))
-            {
-                MoveComp->MaxAcceleration = FloatValue;
-                bSuccess = true;
-            }
-            else if (PropertyName.Equals(TEXT("BrakingDecelerationWalking"), ESearchCase::IgnoreCase))
-            {
-                MoveComp->BrakingDecelerationWalking = FloatValue;
-                bSuccess = true;
-            }
-            else if (PropertyName.Equals(TEXT("GroundFriction"), ESearchCase::IgnoreCase))
-            {
-                MoveComp->GroundFriction = FloatValue;
-                bSuccess = true;
-            }
-
-            if (bSuccess)
-            {
-                ComponentTemplate->PostEditChange();
-                FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
-
-                UE_LOG(LogTemp, Log, TEXT("SetComponentProperty - Set CharacterMovement.%s = %f"), *PropertyName, FloatValue);
-
-                TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-                ResultObj->SetStringField(TEXT("component"), ComponentName);
-                ResultObj->SetStringField(TEXT("property"), PropertyName);
-                ResultObj->SetNumberField(TEXT("value"), FloatValue);
-                ResultObj->SetBoolField(TEXT("success"), true);
-                return ResultObj;
-            }
-            // If property not in special list, fall through to generic handling
         }
     }
 
@@ -835,10 +740,25 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetComponentProperty(
 
         if (bSuccess)
         {
-            // Mark the blueprint as modified
-            UE_LOG(LogTemp, Log, TEXT("SetComponentProperty - Successfully set property %s on component %s"), 
+            // Mark ONLY the component template as modified, not the whole Blueprint
+            // This prevents cascading side effects on other components
+            UE_LOG(LogTemp, Log, TEXT("SetComponentProperty - Successfully set property %s on component %s"),
                 *PropertyName, *ComponentName);
-            FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+
+            // Mark the component template's package as dirty for saving
+            if (ComponentTemplate)
+            {
+                ComponentTemplate->MarkPackageDirty();
+            }
+
+            // Mark the Blueprint's package as dirty (for saving) but DON'T trigger recompilation
+            if (Blueprint && Blueprint->GetOutermost())
+            {
+                Blueprint->GetOutermost()->MarkPackageDirty();
+            }
+
+            // NOTE: We intentionally do NOT call FBlueprintEditorUtils::MarkBlueprintAsModified()
+            // as that can trigger recompilation and reset other component properties
 
             TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
             ResultObj->SetStringField(TEXT("component"), ComponentName);
@@ -926,8 +846,11 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetPhysicsProperties(
         PrimComponent->SetAngularDamping(Params->GetNumberField(TEXT("angular_damping")));
     }
 
-    // Mark the blueprint as modified
-    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+    // Mark package as dirty for saving (don't trigger full Blueprint recompilation)
+    if (Blueprint && Blueprint->GetOutermost())
+    {
+        Blueprint->GetOutermost()->MarkPackageDirty();
+    }
 
     TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
     ResultObj->SetStringField(TEXT("component"), ComponentName);
@@ -1052,8 +975,11 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetBlueprintProperty(
         FString ErrorMessage;
         if (FUnrealMCPCommonUtils::SetObjectProperty(DefaultObject, PropertyName, JsonValue, ErrorMessage))
         {
-            // Mark the blueprint as modified
-            FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+            // Mark package as dirty for saving (don't trigger full Blueprint recompilation)
+            if (Blueprint && Blueprint->GetOutermost())
+            {
+                Blueprint->GetOutermost()->MarkPackageDirty();
+            }
 
             TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
             ResultObj->SetStringField(TEXT("property"), PropertyName);
@@ -1134,8 +1060,11 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetStaticMeshProperti
         }
     }
 
-    // Mark the blueprint as modified
-    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+    // Mark package as dirty for saving (don't trigger full Blueprint recompilation)
+    if (Blueprint && Blueprint->GetOutermost())
+    {
+        Blueprint->GetOutermost()->MarkPackageDirty();
+    }
 
     TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
     ResultObj->SetStringField(TEXT("component"), ComponentName);
@@ -1250,10 +1179,10 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetPawnProperties(con
         }
     }
 
-    // Mark the blueprint as modified if any properties were set
-    if (bAnyPropertiesSet)
+    // Mark package as dirty for saving (don't trigger full Blueprint recompilation)
+    if (bAnyPropertiesSet && Blueprint && Blueprint->GetOutermost())
     {
-        FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+        Blueprint->GetOutermost()->MarkPackageDirty();
     }
     else if (ResultsObj->Values.Num() == 0)
     {
@@ -1266,4 +1195,103 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetPawnProperties(con
     ResponseObj->SetBoolField(TEXT("success"), bAnyPropertiesSet);
     ResponseObj->SetObjectField(TEXT("results"), ResultsObj);
     return ResponseObj;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleReparentBlueprint(const TSharedPtr<FJsonObject>& Params)
+{
+    // Get required parameters
+    FString BlueprintName;
+    if (!Params->TryGetStringField(TEXT("blueprint_name"), BlueprintName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'blueprint_name' parameter"));
+    }
+
+    FString NewParentClassName;
+    if (!Params->TryGetStringField(TEXT("new_parent_class"), NewParentClassName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'new_parent_class' parameter"));
+    }
+
+    // Find the Blueprint
+    FString PackagePath = TEXT("/Game/Blueprints/") + BlueprintName;
+    UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *PackagePath);
+
+    // Try alternate paths if not found
+    if (!Blueprint)
+    {
+        TArray<FString> SearchPaths = {
+            FString::Printf(TEXT("/Game/TopDown/Blueprints/%s.%s"), *BlueprintName, *BlueprintName),
+            FString::Printf(TEXT("/Game/%s.%s"), *BlueprintName, *BlueprintName)
+        };
+
+        for (const FString& SearchPath : SearchPaths)
+        {
+            Blueprint = LoadObject<UBlueprint>(nullptr, *SearchPath);
+            if (Blueprint) break;
+        }
+    }
+
+    if (!Blueprint)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintName));
+    }
+
+    // Find the new parent class
+    UClass* NewParentClass = nullptr;
+
+    // Try to find native class first
+    NewParentClass = FindObject<UClass>(nullptr, *FString::Printf(TEXT("/Script/Metanoia.%s"), *NewParentClassName));
+
+    // Try Engine classes
+    if (!NewParentClass)
+    {
+        NewParentClass = FindObject<UClass>(nullptr, *FString::Printf(TEXT("/Script/Engine.%s"), *NewParentClassName));
+    }
+
+    // Try CoreUObject
+    if (!NewParentClass)
+    {
+        NewParentClass = FindObject<UClass>(nullptr, *FString::Printf(TEXT("/Script/CoreUObject.%s"), *NewParentClassName));
+    }
+
+    // Try to load as Blueprint class
+    if (!NewParentClass)
+    {
+        FString BlueprintPath = FString::Printf(TEXT("/Game/Blueprints/%s.%s_C"), *NewParentClassName, *NewParentClassName);
+        NewParentClass = LoadObject<UClass>(nullptr, *BlueprintPath);
+    }
+
+    if (!NewParentClass)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Parent class not found: %s"), *NewParentClassName));
+    }
+
+    // Store old parent for response
+    FString OldParentName = Blueprint->ParentClass ? Blueprint->ParentClass->GetName() : TEXT("None");
+
+    // Reparent the Blueprint
+    Blueprint->ParentClass = NewParentClass;
+
+    // Compile the Blueprint
+    FKismetEditorUtilities::CompileBlueprint(Blueprint);
+
+    // Mark as dirty and save
+    Blueprint->MarkPackageDirty();
+
+    // Save the Blueprint
+    UPackage* Package = Blueprint->GetOutermost();
+    if (Package)
+    {
+        FString PackageFileName = FPackageName::LongPackageNameToFilename(Package->GetName(), FPackageName::GetAssetPackageExtension());
+        FSavePackageArgs SaveArgs;
+        SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+        UPackage::SavePackage(Package, Blueprint, *PackageFileName, SaveArgs);
+    }
+
+    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+    ResultObj->SetBoolField(TEXT("success"), true);
+    ResultObj->SetStringField(TEXT("blueprint"), BlueprintName);
+    ResultObj->SetStringField(TEXT("old_parent"), OldParentName);
+    ResultObj->SetStringField(TEXT("new_parent"), NewParentClass->GetName());
+    return ResultObj;
 } 

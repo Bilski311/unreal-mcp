@@ -224,33 +224,35 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                 ResultJson->SetStringField(TEXT("message"), TEXT("pong"));
             }
             // Editor Commands (including actor manipulation)
-            else if (CommandType == TEXT("get_actors_in_level") || 
+            else if (CommandType == TEXT("get_actors_in_level") ||
                      CommandType == TEXT("find_actors_by_name") ||
                      CommandType == TEXT("spawn_actor") ||
                      CommandType == TEXT("create_actor") ||
-                     CommandType == TEXT("delete_actor") || 
+                     CommandType == TEXT("delete_actor") ||
                      CommandType == TEXT("set_actor_transform") ||
                      CommandType == TEXT("get_actor_properties") ||
                      CommandType == TEXT("set_actor_property") ||
                      CommandType == TEXT("spawn_blueprint_actor") ||
-                     CommandType == TEXT("focus_viewport") || 
+                     CommandType == TEXT("focus_viewport") ||
                      CommandType == TEXT("take_screenshot") ||
                      CommandType == TEXT("save_all") ||
                      CommandType == TEXT("save_current_level") ||
                      CommandType == TEXT("get_actor_components") ||
-                     CommandType == TEXT("set_actor_component_property"))
+                     CommandType == TEXT("set_actor_component_property") ||
+                     CommandType == TEXT("set_actor_static_mesh"))
             {
                 ResultJson = EditorCommands->HandleCommand(CommandType, Params);
             }
             // Blueprint Commands
-            else if (CommandType == TEXT("create_blueprint") || 
-                     CommandType == TEXT("add_component_to_blueprint") || 
-                     CommandType == TEXT("set_component_property") || 
-                     CommandType == TEXT("set_physics_properties") || 
-                     CommandType == TEXT("compile_blueprint") || 
-                     CommandType == TEXT("set_blueprint_property") || 
+            else if (CommandType == TEXT("create_blueprint") ||
+                     CommandType == TEXT("add_component_to_blueprint") ||
+                     CommandType == TEXT("set_component_property") ||
+                     CommandType == TEXT("set_physics_properties") ||
+                     CommandType == TEXT("compile_blueprint") ||
+                     CommandType == TEXT("set_blueprint_property") ||
                      CommandType == TEXT("set_static_mesh_properties") ||
-                     CommandType == TEXT("set_pawn_properties"))
+                     CommandType == TEXT("set_pawn_properties") ||
+                     CommandType == TEXT("reparent_blueprint"))
             {
                 ResultJson = BlueprintCommands->HandleCommand(CommandType, Params);
             }
@@ -267,8 +269,13 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
             {
                 ResultJson = BlueprintNodeCommands->HandleCommand(CommandType, Params);
             }
-            // Project Commands
-            else if (CommandType == TEXT("create_input_mapping"))
+            // Project Commands (including Enhanced Input)
+            else if (CommandType == TEXT("create_input_mapping") ||
+                     CommandType == TEXT("create_input_action") ||
+                     CommandType == TEXT("create_input_mapping_context") ||
+                     CommandType == TEXT("add_mapping_to_context") ||
+                     CommandType == TEXT("get_input_actions") ||
+                     CommandType == TEXT("get_input_mapping_contexts"))
             {
                 ResultJson = ProjectCommands->HandleCommand(CommandType, Params);
             }
