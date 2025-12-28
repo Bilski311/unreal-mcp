@@ -26,6 +26,7 @@
 #include "Subsystems/EditorActorSubsystem.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "FileHelpers.h"
 #include "Engine/World.h"
 #include "UObject/SavePackage.h"
@@ -68,6 +69,14 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCommand(const FString& C
     else if (CommandType == TEXT("set_actor_property"))
     {
         return HandleSetActorProperty(Params);
+    }
+    else if (CommandType == TEXT("get_actor_components"))
+    {
+        return HandleGetActorComponents(Params);
+    }
+    else if (CommandType == TEXT("set_actor_component_property"))
+    {
+        return HandleSetActorComponentProperty(Params);
     }
     // Blueprint actor spawning
     else if (CommandType == TEXT("spawn_blueprint_actor"))
@@ -532,6 +541,229 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorProperty(const T
         
         // Also include the full actor details
         ResultObj->SetObjectField(TEXT("actor_details"), FUnrealMCPCommonUtils::ActorToJsonObject(TargetActor, true));
+        return ResultObj;
+    }
+    else
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetActorComponents(const TSharedPtr<FJsonObject>& Params)
+{
+    // Get actor name
+    FString ActorName;
+    if (!Params->TryGetStringField(TEXT("name"), ActorName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'name' parameter"));
+    }
+
+    // Find the actor
+    AActor* TargetActor = nullptr;
+    TArray<AActor*> AllActors;
+    UGameplayStatics::GetAllActorsOfClass(GWorld, AActor::StaticClass(), AllActors);
+    
+    for (AActor* Actor : AllActors)
+    {
+        if (Actor && Actor->GetName() == ActorName)
+        {
+            TargetActor = Actor;
+            break;
+        }
+    }
+
+    if (!TargetActor)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+    }
+
+    // Get all components
+    TArray<TSharedPtr<FJsonValue>> ComponentArray;
+    TArray<UActorComponent*> Components;
+    TargetActor->GetComponents(Components);
+
+    for (UActorComponent* Component : Components)
+    {
+        if (Component)
+        {
+            TSharedPtr<FJsonObject> CompObj = MakeShared<FJsonObject>();
+            CompObj->SetStringField(TEXT("name"), Component->GetName());
+            CompObj->SetStringField(TEXT("class"), Component->GetClass()->GetName());
+            
+            // Add some common properties for known component types
+            if (UCharacterMovementComponent* MoveComp = Cast<UCharacterMovementComponent>(Component))
+            {
+                CompObj->SetNumberField(TEXT("MaxWalkSpeed"), MoveComp->MaxWalkSpeed);
+                CompObj->SetNumberField(TEXT("MaxWalkSpeedCrouched"), MoveComp->MaxWalkSpeedCrouched);
+                CompObj->SetNumberField(TEXT("JumpZVelocity"), MoveComp->JumpZVelocity);
+                CompObj->SetNumberField(TEXT("GravityScale"), MoveComp->GravityScale);
+            }
+            else if (UPrimitiveComponent* PrimComp = Cast<UPrimitiveComponent>(Component))
+            {
+                CompObj->SetBoolField(TEXT("SimulatePhysics"), PrimComp->IsSimulatingPhysics());
+            }
+            
+            ComponentArray.Add(MakeShared<FJsonValueObject>(CompObj));
+        }
+    }
+
+    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+    ResultObj->SetStringField(TEXT("actor"), ActorName);
+    ResultObj->SetArrayField(TEXT("components"), ComponentArray);
+    ResultObj->SetNumberField(TEXT("component_count"), ComponentArray.Num());
+    return ResultObj;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorComponentProperty(const TSharedPtr<FJsonObject>& Params)
+{
+    // Get actor name
+    FString ActorName;
+    if (!Params->TryGetStringField(TEXT("name"), ActorName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'name' parameter"));
+    }
+
+    // Get component name
+    FString ComponentName;
+    if (!Params->TryGetStringField(TEXT("component_name"), ComponentName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'component_name' parameter"));
+    }
+
+    // Get property name
+    FString PropertyName;
+    if (!Params->TryGetStringField(TEXT("property_name"), PropertyName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'property_name' parameter"));
+    }
+
+    // Get property value
+    if (!Params->HasField(TEXT("property_value")))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'property_value' parameter"));
+    }
+    TSharedPtr<FJsonValue> PropertyValue = Params->Values.FindRef(TEXT("property_value"));
+
+    // Find the actor
+    AActor* TargetActor = nullptr;
+    TArray<AActor*> AllActors;
+    UGameplayStatics::GetAllActorsOfClass(GWorld, AActor::StaticClass(), AllActors);
+    
+    for (AActor* Actor : AllActors)
+    {
+        if (Actor && Actor->GetName() == ActorName)
+        {
+            TargetActor = Actor;
+            break;
+        }
+    }
+
+    if (!TargetActor)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+    }
+
+    // Find the component (by name or class name)
+    UActorComponent* TargetComponent = nullptr;
+    TArray<UActorComponent*> Components;
+    TargetActor->GetComponents(Components);
+
+    for (UActorComponent* Component : Components)
+    {
+        if (Component)
+        {
+            // Match by component name or class name (without the U prefix)
+            FString CompName = Component->GetName();
+            FString ClassName = Component->GetClass()->GetName();
+            
+            if (CompName.Equals(ComponentName, ESearchCase::IgnoreCase) ||
+                ClassName.Equals(ComponentName, ESearchCase::IgnoreCase) ||
+                ClassName.Equals(ComponentName + TEXT("Component"), ESearchCase::IgnoreCase) ||
+                CompName.Contains(ComponentName))
+            {
+                TargetComponent = Component;
+                break;
+            }
+        }
+    }
+
+    if (!TargetComponent)
+    {
+        // Build helpful error message listing available components
+        FString AvailableComps;
+        for (UActorComponent* Component : Components)
+        {
+            if (Component)
+            {
+                AvailableComps += FString::Printf(TEXT("\n  - %s (%s)"), *Component->GetName(), *Component->GetClass()->GetName());
+            }
+        }
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(
+            TEXT("Component '%s' not found on actor '%s'. Available components:%s"), 
+            *ComponentName, *ActorName, *AvailableComps));
+    }
+
+    // Special handling for CharacterMovementComponent
+    if (UCharacterMovementComponent* MoveComp = Cast<UCharacterMovementComponent>(TargetComponent))
+    {
+        float FloatValue = FCString::Atof(*PropertyValue->AsString());
+        
+        if (PropertyName.Equals(TEXT("MaxWalkSpeed"), ESearchCase::IgnoreCase))
+        {
+            MoveComp->MaxWalkSpeed = FloatValue;
+        }
+        else if (PropertyName.Equals(TEXT("MaxWalkSpeedCrouched"), ESearchCase::IgnoreCase))
+        {
+            MoveComp->MaxWalkSpeedCrouched = FloatValue;
+        }
+        else if (PropertyName.Equals(TEXT("JumpZVelocity"), ESearchCase::IgnoreCase))
+        {
+            MoveComp->JumpZVelocity = FloatValue;
+        }
+        else if (PropertyName.Equals(TEXT("GravityScale"), ESearchCase::IgnoreCase))
+        {
+            MoveComp->GravityScale = FloatValue;
+        }
+        else if (PropertyName.Equals(TEXT("MaxAcceleration"), ESearchCase::IgnoreCase))
+        {
+            MoveComp->MaxAcceleration = FloatValue;
+        }
+        else if (PropertyName.Equals(TEXT("BrakingDecelerationWalking"), ESearchCase::IgnoreCase))
+        {
+            MoveComp->BrakingDecelerationWalking = FloatValue;
+        }
+        else if (PropertyName.Equals(TEXT("GroundFriction"), ESearchCase::IgnoreCase))
+        {
+            MoveComp->GroundFriction = FloatValue;
+        }
+        else
+        {
+            // Try generic property setting
+            FString ErrorMessage;
+            if (!FUnrealMCPCommonUtils::SetObjectProperty(MoveComp, PropertyName, PropertyValue, ErrorMessage))
+            {
+                return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+            }
+        }
+
+        TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+        ResultObj->SetStringField(TEXT("actor"), ActorName);
+        ResultObj->SetStringField(TEXT("component"), TargetComponent->GetName());
+        ResultObj->SetStringField(TEXT("property"), PropertyName);
+        ResultObj->SetStringField(TEXT("value"), PropertyValue->AsString());
+        ResultObj->SetBoolField(TEXT("success"), true);
+        return ResultObj;
+    }
+
+    // Generic property setting for other component types
+    FString ErrorMessage;
+    if (FUnrealMCPCommonUtils::SetObjectProperty(TargetComponent, PropertyName, PropertyValue, ErrorMessage))
+    {
+        TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+        ResultObj->SetStringField(TEXT("actor"), ActorName);
+        ResultObj->SetStringField(TEXT("component"), TargetComponent->GetName());
+        ResultObj->SetStringField(TEXT("property"), PropertyName);
+        ResultObj->SetBoolField(TEXT("success"), true);
         return ResultObj;
     }
     else

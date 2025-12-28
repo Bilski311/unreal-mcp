@@ -434,6 +434,119 @@ def register_editor_tools(mcp: FastMCP):
             return {"success": False, "message": error_msg}
 
     @mcp.tool()
+    def get_actor_components(ctx: Context, name: str) -> Dict[str, Any]:
+        """Get all components attached to an actor.
+        
+        This is useful to discover what components an actor has and what properties
+        can be modified via set_actor_component_property.
+        
+        Args:
+            ctx: The MCP context
+            name: The name of the actor to inspect
+            
+        Returns:
+            Dict containing:
+            - actor: name of the actor
+            - components: list of component objects with name, class, and some properties
+            - component_count: total number of components
+            
+        Example:
+            get_actor_components(ctx, "BP_TopDownCharacter_C_UAID_...")
+            -> {"actor": "...", "components": [{"name": "CharacterMovement0", "class": "CharacterMovementComponent", "MaxWalkSpeed": 600}, ...]}
+        """
+        from unreal_mcp_server import get_unreal_connection
+        
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+            
+            params = {"name": name}
+            logger.info(f"Getting components for actor '{name}'")
+            response = unreal.send_command("get_actor_components", params)
+            
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+            
+            logger.info(f"Get actor components response: {response}")
+            return response
+            
+        except Exception as e:
+            error_msg = f"Error getting actor components: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def set_actor_component_property(
+        ctx: Context,
+        name: str,
+        component_name: str,
+        property_name: str,
+        property_value: str
+    ) -> Dict[str, Any]:
+        """Set a property on a component attached to an actor.
+        
+        This allows modifying properties on any component of any actor in the level.
+        Use get_actor_components first to discover available components.
+        
+        Args:
+            ctx: The MCP context
+            name: The name of the actor
+            component_name: The name or class of the component (e.g., "CharacterMovement", "CharacterMovement0", "CharacterMovementComponent")
+            property_name: The property to set (e.g., "MaxWalkSpeed", "JumpZVelocity")
+            property_value: The value to set (as string, will be parsed appropriately)
+            
+        Returns:
+            Dict containing success status and the set values
+            
+        Common CharacterMovementComponent properties:
+            - MaxWalkSpeed (default 600) - walking speed in cm/s
+            - MaxWalkSpeedCrouched (default 300) - crouched speed
+            - JumpZVelocity (default 420) - jump height
+            - GravityScale (default 1.0) - gravity multiplier
+            - MaxAcceleration (default 2048) - how fast to reach max speed
+            - BrakingDecelerationWalking (default 2048) - how fast to stop
+            - GroundFriction (default 8.0) - friction when walking
+            
+        Example:
+            # Make character walk faster
+            set_actor_component_property(ctx, "BP_TopDownCharacter_C_...", "CharacterMovement", "MaxWalkSpeed", "1200")
+            
+            # Make character jump higher
+            set_actor_component_property(ctx, "BP_TopDownCharacter_C_...", "CharacterMovement", "JumpZVelocity", "800")
+        """
+        from unreal_mcp_server import get_unreal_connection
+        
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+            
+            params = {
+                "name": name,
+                "component_name": component_name,
+                "property_name": property_name,
+                "property_value": property_value
+            }
+            logger.info(f"Setting component property: {name}.{component_name}.{property_name} = {property_value}")
+            response = unreal.send_command("set_actor_component_property", params)
+            
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+            
+            logger.info(f"Set component property response: {response}")
+            return response
+            
+        except Exception as e:
+            error_msg = f"Error setting component property: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
     def save_all(ctx: Context) -> Dict[str, Any]:
         """Save all modified assets and the current level in Unreal Editor.
         

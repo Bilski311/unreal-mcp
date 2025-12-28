@@ -236,7 +236,9 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("focus_viewport") || 
                      CommandType == TEXT("take_screenshot") ||
                      CommandType == TEXT("save_all") ||
-                     CommandType == TEXT("save_current_level"))
+                     CommandType == TEXT("save_current_level") ||
+                     CommandType == TEXT("get_actor_components") ||
+                     CommandType == TEXT("set_actor_component_property"))
             {
                 ResultJson = EditorCommands->HandleCommand(CommandType, Params);
             }
