@@ -366,4 +366,56 @@ def register_editor_tools(mcp: FastMCP):
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
 
+    @mcp.tool()
+    def set_actor_static_mesh(
+        ctx: Context,
+        name: str,
+        mesh_path: str
+    ) -> Dict[str, Any]:
+        """Set the static mesh on a StaticMeshActor.
+        
+        Args:
+            ctx: The MCP context
+            name: Name of the StaticMeshActor to modify
+            mesh_path: Path to the static mesh asset (e.g., "/Engine/BasicShapes/Cube.Cube")
+            
+        Common mesh paths:
+            - /Engine/BasicShapes/Cube.Cube
+            - /Engine/BasicShapes/Sphere.Sphere
+            - /Engine/BasicShapes/Cylinder.Cylinder
+            - /Engine/BasicShapes/Cone.Cone
+            - /Engine/BasicShapes/Plane.Plane
+            
+        Returns:
+            Dict containing the result of the operation
+        """
+        from unreal_mcp_server import get_unreal_connection
+        
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+            
+            params = {
+                "name": name,
+                "property_name": "StaticMesh",
+                "property_value": mesh_path
+            }
+            
+            logger.info(f"Setting static mesh on actor '{name}' to '{mesh_path}'")
+            response = unreal.send_command("set_actor_property", params)
+            
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+            
+            logger.info(f"Set static mesh response: {response}")
+            return response
+            
+        except Exception as e:
+            error_msg = f"Error setting static mesh: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
     logger.info("Editor tools registered successfully")

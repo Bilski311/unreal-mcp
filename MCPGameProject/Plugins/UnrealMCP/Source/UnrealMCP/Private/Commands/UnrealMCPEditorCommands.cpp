@@ -11,6 +11,7 @@
 #include "Engine/Selection.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/StaticMeshActor.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/Light.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/PointLight.h"
@@ -380,6 +381,35 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorProperty(const T
     }
     
     TSharedPtr<FJsonValue> PropertyValue = Params->Values.FindRef(TEXT("property_value"));
+
+    // Special handling for StaticMeshActor - set static mesh
+    if (AStaticMeshActor* MeshActor = Cast<AStaticMeshActor>(TargetActor))
+    {
+        if (PropertyName.Equals(TEXT("StaticMesh"), ESearchCase::IgnoreCase))
+        {
+            FString MeshPath = PropertyValue->AsString();
+            UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *MeshPath);
+            if (Mesh)
+            {
+                UStaticMeshComponent* MeshComponent = MeshActor->GetStaticMeshComponent();
+                if (MeshComponent)
+                {
+                    MeshComponent->SetStaticMesh(Mesh);
+
+                    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+                    ResultObj->SetStringField(TEXT("actor"), ActorName);
+                    ResultObj->SetStringField(TEXT("property"), PropertyName);
+                    ResultObj->SetStringField(TEXT("value"), MeshPath);
+                    ResultObj->SetBoolField(TEXT("success"), true);
+                    return ResultObj;
+                }
+            }
+            else
+            {
+                return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to load mesh: %s"), *MeshPath));
+            }
+        }
+    }
 
     // Special handling for light actors - check if we need to access the light component
     ULightComponent* LightComponent = nullptr;
