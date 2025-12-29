@@ -21,6 +21,11 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialExpressionConstant3Vector.h"
+#include "Materials/MaterialInstanceConstant.h"
+#include "Factories/MaterialInstanceConstantFactoryNew.h"
+#include "MaterialEditor/Public/MaterialEditingLibrary.h"
 
 FUnrealMCPBlueprintCommands::FUnrealMCPBlueprintCommands()
 {
@@ -67,6 +72,10 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCommand(const FString
     else if (CommandType == TEXT("reparent_blueprint"))
     {
         return HandleReparentBlueprint(Params);
+    }
+    else if (CommandType == TEXT("create_material"))
+    {
+        return HandleCreateMaterial(Params);
     }
 
     return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Unknown blueprint command: %s"), *CommandType));
@@ -1293,5 +1302,95 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleReparentBlueprint(con
     ResultObj->SetStringField(TEXT("blueprint"), BlueprintName);
     ResultObj->SetStringField(TEXT("old_parent"), OldParentName);
     ResultObj->SetStringField(TEXT("new_parent"), NewParentClass->GetName());
+    return ResultObj;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCreateMaterial(const TSharedPtr<FJsonObject>& Params)
+{
+    // Get required parameters
+    FString MaterialName;
+    if (!Params->TryGetStringField(TEXT("name"), MaterialName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'name' parameter"));
+    }
+
+    // Get optional path (default to /Game/Materials)
+    FString MaterialPath = TEXT("/Game/Materials");
+    Params->TryGetStringField(TEXT("path"), MaterialPath);
+
+    // Get color (default to red)
+    FLinearColor Color(1.0f, 0.0f, 0.0f, 1.0f);
+    if (Params->HasField(TEXT("color")))
+    {
+        const TArray<TSharedPtr<FJsonValue>>* ColorArray;
+        if (Params->TryGetArrayField(TEXT("color"), ColorArray) && ColorArray->Num() >= 3)
+        {
+            Color.R = (*ColorArray)[0]->AsNumber();
+            Color.G = (*ColorArray)[1]->AsNumber();
+            Color.B = (*ColorArray)[2]->AsNumber();
+            Color.A = ColorArray->Num() >= 4 ? (*ColorArray)[3]->AsNumber() : 1.0f;
+        }
+    }
+
+    // Create package for the material
+    FString PackageName = MaterialPath / MaterialName;
+    UPackage* Package = CreatePackage(*PackageName);
+    if (!Package)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to create package"));
+    }
+
+    // Create the Material asset
+    UMaterial* NewMaterial = NewObject<UMaterial>(Package, *MaterialName, RF_Public | RF_Standalone);
+    if (!NewMaterial)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to create material"));
+    }
+
+    // Create a Constant3Vector expression for the color
+    UMaterialExpressionConstant3Vector* ColorExpression = NewObject<UMaterialExpressionConstant3Vector>(NewMaterial);
+    ColorExpression->Constant = FLinearColor(Color.R, Color.G, Color.B);
+
+    // Add the expression to the material
+    NewMaterial->GetExpressionCollection().AddExpression(ColorExpression);
+
+    // Connect to Base Color
+    NewMaterial->GetEditorOnlyData()->BaseColor.Expression = ColorExpression;
+
+    // Set material properties for basic unlit rendering
+    NewMaterial->SetShadingModel(MSM_DefaultLit);
+
+    // Position the node in the material editor
+    ColorExpression->MaterialExpressionEditorX = -200;
+    ColorExpression->MaterialExpressionEditorY = 0;
+
+    // Update the material
+    NewMaterial->PreEditChange(nullptr);
+    NewMaterial->PostEditChange();
+
+    // Notify asset registry
+    FAssetRegistryModule::AssetCreated(NewMaterial);
+
+    // Mark package dirty and save
+    Package->MarkPackageDirty();
+
+    FString PackageFileName = FPackageName::LongPackageNameToFilename(PackageName, FPackageName::GetAssetPackageExtension());
+    FSavePackageArgs SaveArgs;
+    SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+    bool bSaved = UPackage::SavePackage(Package, NewMaterial, *PackageFileName, SaveArgs);
+
+    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+    ResultObj->SetBoolField(TEXT("success"), true);
+    ResultObj->SetStringField(TEXT("name"), MaterialName);
+    ResultObj->SetStringField(TEXT("path"), PackageName);
+    ResultObj->SetBoolField(TEXT("saved"), bSaved);
+
+    TSharedPtr<FJsonObject> ColorObj = MakeShared<FJsonObject>();
+    ColorObj->SetNumberField(TEXT("r"), Color.R);
+    ColorObj->SetNumberField(TEXT("g"), Color.G);
+    ColorObj->SetNumberField(TEXT("b"), Color.B);
+    ColorObj->SetNumberField(TEXT("a"), Color.A);
+    ResultObj->SetObjectField(TEXT("color"), ColorObj);
+
     return ResultObj;
 } 

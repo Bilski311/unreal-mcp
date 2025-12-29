@@ -465,4 +465,51 @@ def register_blueprint_tools(mcp: FastMCP):
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
 
+    @mcp.tool()
+    def create_material(
+        ctx: Context,
+        name: str,
+        path: str = "/Game/Materials",
+        color: List[float] = [1.0, 0.0, 0.0, 1.0]
+    ) -> Dict[str, Any]:
+        """
+        Create a new Material asset with a solid color.
+
+        Args:
+            name: Name of the material to create (e.g., "M_Red")
+            path: Content path for the asset (default: /Game/Materials)
+            color: [R, G, B, A] color values (0.0 to 1.0), default is red
+
+        Returns:
+            Dict containing success status and material path
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "name": name,
+                "path": path,
+                "color": color
+            }
+
+            logger.info(f"Creating material '{name}' with color {color}")
+            response = unreal.send_command("create_material", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Create material response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error creating material: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
     logger.info("Blueprint tools registered successfully") 
