@@ -28,6 +28,10 @@ TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleCommand(const FString& 
     {
         return HandleAddMappingToContext(Params);
     }
+    else if (CommandType == TEXT("remove_mapping_from_context"))
+    {
+        return HandleRemoveMappingFromContext(Params);
+    }
     else if (CommandType == TEXT("get_input_actions"))
     {
         return HandleGetInputActions(Params);
@@ -332,6 +336,140 @@ TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleAddMappingToContext(con
     ResultObj->SetStringField(TEXT("context"), IMC->GetName());
     ResultObj->SetStringField(TEXT("action"), Action->GetName());
     ResultObj->SetStringField(TEXT("key"), KeyName);
+    return ResultObj;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleRemoveMappingFromContext(const TSharedPtr<FJsonObject>& Params)
+{
+    // Get required parameters
+    FString ContextName;
+    if (!Params->TryGetStringField(TEXT("context_name"), ContextName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'context_name' parameter"));
+    }
+
+    FString ActionName;
+    if (!Params->TryGetStringField(TEXT("action_name"), ActionName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'action_name' parameter"));
+    }
+
+    FString KeyName;
+    if (!Params->TryGetStringField(TEXT("key"), KeyName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'key' parameter"));
+    }
+
+    // Find the InputMappingContext
+    UInputMappingContext* IMC = nullptr;
+
+    // Try direct path first
+    if (ContextName.StartsWith(TEXT("/")))
+    {
+        IMC = LoadObject<UInputMappingContext>(nullptr, *ContextName);
+    }
+
+    // Try common paths if not found
+    if (!IMC)
+    {
+        TArray<FString> SearchPaths = {
+            FString::Printf(TEXT("/Game/Input/%s.%s"), *ContextName, *ContextName),
+            FString::Printf(TEXT("/Game/TopDown/Input/%s.%s"), *ContextName, *ContextName),
+            FString::Printf(TEXT("/Game/%s.%s"), *ContextName, *ContextName)
+        };
+
+        for (const FString& SearchPath : SearchPaths)
+        {
+            IMC = LoadObject<UInputMappingContext>(nullptr, *SearchPath);
+            if (IMC) break;
+        }
+    }
+
+    if (!IMC)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("InputMappingContext not found: %s"), *ContextName));
+    }
+
+    // Find the InputAction
+    UInputAction* Action = nullptr;
+
+    // Try direct path first
+    if (ActionName.StartsWith(TEXT("/")))
+    {
+        Action = LoadObject<UInputAction>(nullptr, *ActionName);
+    }
+
+    // Try common paths if not found
+    if (!Action)
+    {
+        TArray<FString> SearchPaths = {
+            FString::Printf(TEXT("/Game/Input/Actions/%s.%s"), *ActionName, *ActionName),
+            FString::Printf(TEXT("/Game/TopDown/Input/Actions/%s.%s"), *ActionName, *ActionName),
+            FString::Printf(TEXT("/Game/%s.%s"), *ActionName, *ActionName)
+        };
+
+        for (const FString& SearchPath : SearchPaths)
+        {
+            Action = LoadObject<UInputAction>(nullptr, *SearchPath);
+            if (Action) break;
+        }
+    }
+
+    if (!Action)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("InputAction not found: %s"), *ActionName));
+    }
+
+    // Validate the key
+    FKey Key(*KeyName);
+    if (!Key.IsValid())
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Invalid key: %s"), *KeyName));
+    }
+
+    // Find and remove the mapping
+    const TArray<FEnhancedActionKeyMapping>& Mappings = IMC->GetMappings();
+    bool bFound = false;
+    int32 MappingIndexToRemove = -1;
+
+    for (int32 i = 0; i < Mappings.Num(); ++i)
+    {
+        const FEnhancedActionKeyMapping& Mapping = Mappings[i];
+        if (Mapping.Action == Action && Mapping.Key == Key)
+        {
+            MappingIndexToRemove = i;
+            bFound = true;
+            break;
+        }
+    }
+
+    if (!bFound)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Mapping not found: %s -> %s in %s"), *ActionName, *KeyName, *ContextName));
+    }
+
+    // Remove the mapping using UnmapKey
+    IMC->UnmapKey(Action, Key);
+
+    // Mark as dirty and save
+    IMC->MarkPackageDirty();
+
+    // Save the IMC
+    UPackage* Package = IMC->GetOutermost();
+    if (Package)
+    {
+        FString PackageFileName = FPackageName::LongPackageNameToFilename(Package->GetName(), FPackageName::GetAssetPackageExtension());
+        FSavePackageArgs SaveArgs;
+        SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+        UPackage::SavePackage(Package, IMC, *PackageFileName, SaveArgs);
+    }
+
+    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+    ResultObj->SetBoolField(TEXT("success"), true);
+    ResultObj->SetStringField(TEXT("context"), IMC->GetName());
+    ResultObj->SetStringField(TEXT("action"), Action->GetName());
+    ResultObj->SetStringField(TEXT("key"), KeyName);
+    ResultObj->SetStringField(TEXT("message"), TEXT("Mapping removed successfully"));
     return ResultObj;
 }
 

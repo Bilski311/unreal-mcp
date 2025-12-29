@@ -170,6 +170,44 @@ def register_project_tools(mcp: FastMCP):
             return {"success": False, "message": str(e)}
 
     @mcp.tool()
+    def remove_mapping_from_context(
+        ctx: Context,
+        context_name: str,
+        action_name: str,
+        key: str
+    ) -> Dict[str, Any]:
+        """
+        Remove an InputAction mapping from an InputMappingContext.
+
+        Args:
+            context_name: Name or path of the InputMappingContext
+            action_name: Name or path of the InputAction to remove
+            key: Key binding to remove (e.g., "E", "SpaceBar", "LeftMouseButton")
+
+        Returns:
+            Dict containing success status and removal details
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "context_name": context_name,
+                "action_name": action_name,
+                "key": key
+            }
+
+            logger.info(f"Removing mapping: {action_name} -> {key} from {context_name}")
+            response = unreal.send_command("remove_mapping_from_context", params)
+            return response if response else {"success": False, "message": "No response"}
+
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
     def get_input_actions(
         ctx: Context,
         path: str = "/Game"

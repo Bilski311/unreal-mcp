@@ -274,6 +274,7 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("create_input_action") ||
                      CommandType == TEXT("create_input_mapping_context") ||
                      CommandType == TEXT("add_mapping_to_context") ||
+                     CommandType == TEXT("remove_mapping_from_context") ||
                      CommandType == TEXT("get_input_actions") ||
                      CommandType == TEXT("get_input_mapping_contexts"))
             {
