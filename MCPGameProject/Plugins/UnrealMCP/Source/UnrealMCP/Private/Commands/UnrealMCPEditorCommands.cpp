@@ -32,6 +32,7 @@
 #include "FileHelpers.h"
 #include "Engine/World.h"
 #include "UObject/SavePackage.h"
+#include "NavMesh/NavMeshBoundsVolume.h"
 
 FUnrealMCPEditorCommands::FUnrealMCPEditorCommands()
 {
@@ -249,6 +250,10 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSpawnActor(const TShared
     else if (ActorType == TEXT("CameraActor"))
     {
         NewActor = World->SpawnActor<ACameraActor>(ACameraActor::StaticClass(), Location, Rotation, SpawnParams);
+    }
+    else if (ActorType == TEXT("NavMeshBoundsVolume"))
+    {
+        NewActor = World->SpawnActor<ANavMeshBoundsVolume>(ANavMeshBoundsVolume::StaticClass(), Location, Rotation, SpawnParams);
     }
     else
     {
