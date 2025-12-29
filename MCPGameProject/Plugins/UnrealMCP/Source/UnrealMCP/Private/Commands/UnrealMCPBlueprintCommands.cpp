@@ -24,8 +24,6 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressionConstant3Vector.h"
 #include "Materials/MaterialInstanceConstant.h"
-#include "Factories/MaterialInstanceConstantFactoryNew.h"
-#include "MaterialEditor/Public/MaterialEditingLibrary.h"
 
 FUnrealMCPBlueprintCommands::FUnrealMCPBlueprintCommands()
 {
