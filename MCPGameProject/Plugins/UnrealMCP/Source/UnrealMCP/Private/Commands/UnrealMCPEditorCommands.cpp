@@ -755,6 +755,52 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorComponentPropert
         return ResultObj;
     }
 
+    // Special handling for mesh component materials
+    if (UMeshComponent* MeshComp = Cast<UMeshComponent>(TargetComponent))
+    {
+        if (PropertyName.Equals(TEXT("Material"), ESearchCase::IgnoreCase) ||
+            PropertyName.Equals(TEXT("OverrideMaterial"), ESearchCase::IgnoreCase))
+        {
+            FString MaterialPath = PropertyValue->AsString();
+            UMaterialInterface* Material = LoadObject<UMaterialInterface>(nullptr, *MaterialPath);
+            if (!Material)
+            {
+                return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(
+                    TEXT("Failed to load material: %s"), *MaterialPath));
+            }
+
+            // Get material index (default to 0, or parse from property name like "Material_1")
+            int32 MaterialIndex = 0;
+            if (Params->HasField(TEXT("material_index")))
+            {
+                MaterialIndex = static_cast<int32>(Params->GetNumberField(TEXT("material_index")));
+            }
+
+            // Apply material to all slots if index is -1, otherwise just the specified slot
+            if (MaterialIndex < 0)
+            {
+                int32 NumMaterials = MeshComp->GetNumMaterials();
+                for (int32 i = 0; i < NumMaterials; i++)
+                {
+                    MeshComp->SetMaterial(i, Material);
+                }
+            }
+            else
+            {
+                MeshComp->SetMaterial(MaterialIndex, Material);
+            }
+
+            TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+            ResultObj->SetStringField(TEXT("actor"), ActorName);
+            ResultObj->SetStringField(TEXT("component"), TargetComponent->GetName());
+            ResultObj->SetStringField(TEXT("property"), PropertyName);
+            ResultObj->SetStringField(TEXT("material"), MaterialPath);
+            ResultObj->SetNumberField(TEXT("material_index"), MaterialIndex);
+            ResultObj->SetBoolField(TEXT("success"), true);
+            return ResultObj;
+        }
+    }
+
     // Generic property setting for other component types
     FString ErrorMessage;
     if (FUnrealMCPCommonUtils::SetObjectProperty(TargetComponent, PropertyName, PropertyValue, ErrorMessage))
