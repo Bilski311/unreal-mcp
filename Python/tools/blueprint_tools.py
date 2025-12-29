@@ -124,32 +124,36 @@ def register_blueprint_tools(mcp: FastMCP):
         ctx: Context,
         blueprint_name: str,
         component_name: str,
-        static_mesh: str = "/Engine/BasicShapes/Cube.Cube"
+        static_mesh: str = "/Engine/BasicShapes/Cube.Cube",
+        material: str = ""
     ) -> Dict[str, Any]:
         """
         Set static mesh properties on a StaticMeshComponent.
-        
+
         Args:
             blueprint_name: Name of the target Blueprint
             component_name: Name of the StaticMeshComponent
             static_mesh: Path to the static mesh asset (e.g., "/Engine/BasicShapes/Cube.Cube")
-            
+            material: Path to the material asset (e.g., "/Game/Materials/M_Red")
+
         Returns:
             Response indicating success or failure
         """
         from unreal_mcp_server import get_unreal_connection
-        
+
         try:
             unreal = get_unreal_connection()
             if not unreal:
                 logger.error("Failed to connect to Unreal Engine")
                 return {"success": False, "message": "Failed to connect to Unreal Engine"}
-            
+
             params = {
                 "blueprint_name": blueprint_name,
                 "component_name": component_name,
                 "static_mesh": static_mesh
             }
+            if material:
+                params["material"] = material
             
             logger.info(f"Setting static mesh properties with params: {params}")
             response = unreal.send_command("set_static_mesh_properties", params)
