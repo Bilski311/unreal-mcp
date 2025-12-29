@@ -18,6 +18,8 @@
 #include "Engine/SpotLight.h"
 #include "Camera/CameraActor.h"
 #include "Components/StaticMeshComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/Material.h"
 #include "Components/LightComponent.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/PointLightComponent.h"
@@ -762,7 +764,36 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorComponentPropert
             PropertyName.Equals(TEXT("OverrideMaterial"), ESearchCase::IgnoreCase))
         {
             FString MaterialPath = PropertyValue->AsString();
-            UMaterialInterface* Material = LoadObject<UMaterialInterface>(nullptr, *MaterialPath);
+            UMaterialInterface* Material = nullptr;
+
+            // Check if it's a color specification like "Color:1,0,0" for red
+            if (MaterialPath.StartsWith(TEXT("Color:")))
+            {
+                FString ColorStr = MaterialPath.RightChop(6); // Remove "Color:"
+                TArray<FString> Components;
+                ColorStr.ParseIntoArray(Components, TEXT(","));
+
+                if (Components.Num() >= 3)
+                {
+                    float R = FCString::Atof(*Components[0]);
+                    float G = FCString::Atof(*Components[1]);
+                    float B = FCString::Atof(*Components[2]);
+
+                    // Create a dynamic material instance with the specified color
+                    UMaterial* BaseMaterial = LoadObject<UMaterial>(nullptr, TEXT("/Engine/EngineMaterials/DefaultMaterial.DefaultMaterial"));
+                    if (BaseMaterial)
+                    {
+                        UMaterialInstanceDynamic* DynMaterial = UMaterialInstanceDynamic::Create(BaseMaterial, MeshComp);
+                        DynMaterial->SetVectorParameterValue(TEXT("BaseColor"), FLinearColor(R, G, B));
+                        Material = DynMaterial;
+                    }
+                }
+            }
+            else
+            {
+                Material = LoadObject<UMaterialInterface>(nullptr, *MaterialPath);
+            }
+
             if (!Material)
             {
                 return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(
