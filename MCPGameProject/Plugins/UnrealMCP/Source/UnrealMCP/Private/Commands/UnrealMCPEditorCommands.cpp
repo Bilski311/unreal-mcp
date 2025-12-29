@@ -815,13 +815,31 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorComponentPropert
                 }
             }
 
-            // Notify editor of property change
-            FPropertyChangedEvent PropertyChangedEvent(nullptr);
-            MeshComp->PostEditChangeProperty(PropertyChangedEvent);
+            // Get the OverrideMaterials property for proper notification
+            FProperty* OverrideMaterialsProp = MeshComp->GetClass()->FindPropertyByName(TEXT("OverrideMaterials"));
+
+            // Notify editor of property change with the specific property
+            if (OverrideMaterialsProp)
+            {
+                FPropertyChangedEvent PropertyChangedEvent(OverrideMaterialsProp);
+                MeshComp->PostEditChangeProperty(PropertyChangedEvent);
+            }
+            else
+            {
+                FPropertyChangedEvent PropertyChangedEvent(nullptr);
+                MeshComp->PostEditChangeProperty(PropertyChangedEvent);
+            }
 
             // Force visual update
             MeshComp->MarkRenderStateDirty();
+            MeshComp->RecreateRenderState_Concurrent();
             TargetActor->MarkPackageDirty();
+
+            // Request viewport redraw
+            if (GEditor)
+            {
+                GEditor->RedrawAllViewports();
+            }
 
             TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
             ResultObj->SetStringField(TEXT("actor"), ActorName);
