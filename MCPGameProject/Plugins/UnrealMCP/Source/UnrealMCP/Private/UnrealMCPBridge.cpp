@@ -91,11 +91,12 @@ void UUnrealMCPBridge::Initialize(FSubsystemCollectionBase& Collection)
     ServerThread = nullptr;
 
     // Read port from config, default to 55557
+    // Config section [UnrealMCP] in DefaultGame.ini
     Port = MCP_SERVER_PORT_DEFAULT;
     if (GConfig)
     {
         int32 ConfigPort = 0;
-        if (GConfig->GetInt(TEXT("/Script/UnrealMCP.MCPSettings"), TEXT("ServerPort"), ConfigPort, GGameIni))
+        if (GConfig->GetInt(TEXT("UnrealMCP"), TEXT("ServerPort"), ConfigPort, GGameIni))
         {
             Port = static_cast<uint16>(ConfigPort);
             UE_LOG(LogTemp, Display, TEXT("UnrealMCPBridge: Using port %d from config"), Port);

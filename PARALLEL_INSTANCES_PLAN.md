@@ -83,7 +83,7 @@ UE_LOG(LogTemp, Display, TEXT("UnrealMCPBridge: Using port %d"), Port);
 
 **Config file (`Config/DefaultGame.ini`):**
 ```ini
-[/Script/UnrealMCP.MCPSettings]
+[UnrealMCP]
 ServerPort=55557
 ```
 
