@@ -790,6 +790,15 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorComponentPropert
                 MeshComp->SetMaterial(MaterialIndex, Material);
             }
 
+            // Force editor viewport refresh
+            MeshComp->MarkRenderStateDirty();
+            TargetActor->Modify();
+            TargetActor->MarkPackageDirty();
+
+            // Force component re-register to update visuals in editor
+            MeshComp->UnregisterComponent();
+            MeshComp->RegisterComponent();
+
             TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
             ResultObj->SetStringField(TEXT("actor"), ActorName);
             ResultObj->SetStringField(TEXT("component"), TargetComponent->GetName());
