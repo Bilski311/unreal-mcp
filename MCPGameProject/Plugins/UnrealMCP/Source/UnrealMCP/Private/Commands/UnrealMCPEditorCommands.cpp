@@ -776,28 +776,52 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorComponentPropert
                 MaterialIndex = static_cast<int32>(Params->GetNumberField(TEXT("material_index")));
             }
 
-            // Apply material to all slots if index is -1, otherwise just the specified slot
-            if (MaterialIndex < 0)
+            // Mark for undo/redo and modification tracking
+            MeshComp->Modify();
+            TargetActor->Modify();
+
+            // For StaticMeshComponent, set override materials properly for editor
+            if (UStaticMeshComponent* StaticMeshComp = Cast<UStaticMeshComponent>(MeshComp))
             {
-                int32 NumMaterials = MeshComp->GetNumMaterials();
-                for (int32 i = 0; i < NumMaterials; i++)
+                // Ensure the OverrideMaterials array is large enough
+                int32 NumMats = StaticMeshComp->GetNumMaterials();
+                if (MaterialIndex < 0)
                 {
-                    MeshComp->SetMaterial(i, Material);
+                    // Apply to all slots
+                    for (int32 i = 0; i < NumMats; i++)
+                    {
+                        StaticMeshComp->SetMaterial(i, Material);
+                    }
+                }
+                else
+                {
+                    StaticMeshComp->SetMaterial(MaterialIndex, Material);
                 }
             }
             else
             {
-                MeshComp->SetMaterial(MaterialIndex, Material);
+                // For other mesh types, use SetMaterial directly
+                if (MaterialIndex < 0)
+                {
+                    int32 NumMaterials = MeshComp->GetNumMaterials();
+                    for (int32 i = 0; i < NumMaterials; i++)
+                    {
+                        MeshComp->SetMaterial(i, Material);
+                    }
+                }
+                else
+                {
+                    MeshComp->SetMaterial(MaterialIndex, Material);
+                }
             }
 
-            // Force editor viewport refresh
-            MeshComp->MarkRenderStateDirty();
-            TargetActor->Modify();
-            TargetActor->MarkPackageDirty();
+            // Notify editor of property change
+            FPropertyChangedEvent PropertyChangedEvent(nullptr);
+            MeshComp->PostEditChangeProperty(PropertyChangedEvent);
 
-            // Force component re-register to update visuals in editor
-            MeshComp->UnregisterComponent();
-            MeshComp->RegisterComponent();
+            // Force visual update
+            MeshComp->MarkRenderStateDirty();
+            TargetActor->MarkPackageDirty();
 
             TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
             ResultObj->SetStringField(TEXT("actor"), ActorName);
