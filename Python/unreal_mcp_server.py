@@ -8,6 +8,7 @@ import logging
 import socket
 import sys
 import json
+import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Dict, Any, Optional
 from mcp.server.fastmcp import FastMCP
@@ -23,9 +24,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("UnrealMCP")
 
-# Configuration
+# Configuration - port can be overridden via MCP_UE_PORT environment variable
 UNREAL_HOST = "127.0.0.1"
-UNREAL_PORT = 55557
+UNREAL_PORT = int(os.environ.get('MCP_UE_PORT', '55557'))
 
 class UnrealConnection:
     """Connection to an Unreal Engine instance."""
@@ -373,5 +374,5 @@ def info():
 
 # Run the server
 if __name__ == "__main__":
-    logger.info("Starting MCP server with stdio transport")
+    logger.info(f"Starting MCP server with stdio transport (will connect to UE on port {UNREAL_PORT})")
     mcp.run(transport='stdio') 

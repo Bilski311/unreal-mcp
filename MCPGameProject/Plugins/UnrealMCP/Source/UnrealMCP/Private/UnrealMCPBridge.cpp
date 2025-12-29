@@ -60,7 +60,7 @@
 
 // Default settings
 #define MCP_SERVER_HOST "127.0.0.1"
-#define MCP_SERVER_PORT 55557
+#define MCP_SERVER_PORT_DEFAULT 55557
 
 UUnrealMCPBridge::UUnrealMCPBridge()
 {
@@ -84,12 +84,28 @@ UUnrealMCPBridge::~UUnrealMCPBridge()
 void UUnrealMCPBridge::Initialize(FSubsystemCollectionBase& Collection)
 {
     UE_LOG(LogTemp, Display, TEXT("UnrealMCPBridge: Initializing"));
-    
+
     bIsRunning = false;
     ListenerSocket = nullptr;
     ConnectionSocket = nullptr;
     ServerThread = nullptr;
-    Port = MCP_SERVER_PORT;
+
+    // Read port from config, default to 55557
+    Port = MCP_SERVER_PORT_DEFAULT;
+    if (GConfig)
+    {
+        int32 ConfigPort = 0;
+        if (GConfig->GetInt(TEXT("/Script/UnrealMCP.MCPSettings"), TEXT("ServerPort"), ConfigPort, GGameIni))
+        {
+            Port = static_cast<uint16>(ConfigPort);
+            UE_LOG(LogTemp, Display, TEXT("UnrealMCPBridge: Using port %d from config"), Port);
+        }
+        else
+        {
+            UE_LOG(LogTemp, Display, TEXT("UnrealMCPBridge: No port in config, using default %d"), Port);
+        }
+    }
+
     FIPv4Address::Parse(MCP_SERVER_HOST, ServerAddress);
 
     // Start the server automatically
